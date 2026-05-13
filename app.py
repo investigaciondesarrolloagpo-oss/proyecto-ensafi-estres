@@ -9,124 +9,26 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import warnings
 warnings.filterwarnings('ignore')
 
-# ------------------------------------------------------------------
-# CONFIGURACIÓN
-# ------------------------------------------------------------------
 st.set_page_config(page_title="Estrés Financiero ENSAFI 2023", page_icon="📊", layout="wide")
 
-# ------------------------------------------------------------------
-# CARGA DE DATOS OPTIMIZADA (solo columnas necesarias)
-# ------------------------------------------------------------------
 @st.cache_data
-def procesar_datos():
-    """Carga los 3 CSV, hace merge y construye variables."""
-    
-    # Columnas mínimas necesarias para reducir memoria
-    cols_mod = ['llaveviv', 'upm', 'viv_sel', 'ent', 'mun', 'tloc', 'region', 'niv_estres']
-    cols_viv = ['llaveviv', 'upm', 'viv_sel', 'ent', 'mun', 'tloc', 'region', 'p1_1', 'p1_2', 'p2_1', 'niv_bienes']
-    cols_sdem = ['llaveviv', 'upm', 'viv_sel', 'ent', 'mun', 'tloc', 'region', 'hogar', 'n_ren', 
-                 'sexo', 'p3_7', 'niv', 'p5_5', 'p8_2_4']
-    
-    # Cargar solo columnas necesarias
-    df_mod = pd.read_csv("conjunto_de_datos_tmodulo_ensafi_2023.csv", usecols=cols_mod, low_memory=False)
-    df_viv = pd.read_csv("conjunto_de_datos_tvivienda_ensafi_2023.csv", usecols=cols_viv, low_memory=False)
-    df_sdem = pd.read_csv("conjunto_de_datos_tsdem_ensafi_2023.csv", usecols=cols_sdem, low_memory=False)
-    
-    # Limpiar nombres
-    for df in [df_mod, df_viv, df_sdem]:
-        df.columns = df.columns.str.lower().str.strip()
-    
-    # Merge
-    keys_viv = ['llaveviv', 'upm', 'viv_sel', 'ent', 'mun', 'tloc', 'region']
-    keys_sdem = keys_viv + ['hogar', 'n_ren']
-    
-    df_total = df_mod.merge(df_viv, on=keys_viv, how='left', suffixes=('', '_viv'))
-    df_total = df_total.merge(df_sdem, on=keys_sdem, how='left', suffixes=('', '_sdem'))
-    df_total = df_total[df_total['niv_estres'].notna()].copy()
-    
-    # --- CONSTRUCCIÓN DE VARIABLES ---
-    # Score
-    df_total['score'] = pd.to_numeric(df_total['niv_estres'], errors='coerce')
-    
-    # Género
-    df_total['Genero'] = np.where(pd.to_numeric(df_total['sexo'], errors='coerce') == 1, 'Hombre', 'Mujer')
-    df_total['Genero'] = pd.Categorical(df_total['Genero'], categories=['Hombre', 'Mujer'])
-    
-    # Universitario
-    p3_7_num = pd.to_numeric(df_total['p3_7'], errors='coerce').fillna(0)
-    niv_num = pd.to_numeric(df_total['niv'], errors='coerce').fillna(0)
-    es_univ = (p3_7_num == 1) & (niv_num.isin([8, 9, 10, 11]))
-    df_total['Academia'] = np.where(es_univ, 'Universitario', 'No Universitario')
-    df_total['Academia'] = pd.Categorical(df_total['Academia'], categories=['No Universitario', 'Universitario'])
-    
-    # Vulnerabilidad (Boltvinik)
-    p1_1 = pd.to_numeric(df_total['p1_1'], errors='coerce').fillna(0)
-    p1_2 = pd.to_numeric(df_total['p1_2'], errors='coerce').fillna(1).replace(0, 1)
-    hacinamiento = (p1_1 / p1_2) > 2
-    piso_no_firme = pd.to_numeric(df_total['p2_1'], errors='coerce').fillna(1) != 1
-    c_vivienda = (hacinamiento | piso_no_firme).astype(int)
-    
-    niv_bienes_num = pd.to_numeric(df_total['niv_bienes'], errors='coerce').fillna(3)
-    c_bienes = niv_bienes_num.isin([1, 2]).astype(int)
-    
-    suma_vuln = c_vivienda + c_bienes
-    df_total['Vulnerabilidad'] = np.select(
-        [suma_vuln == 2, suma_vuln == 1, suma_vuln == 0],
-        ['Pobreza Alta', 'Vulnerable No Pobre', 'No Vulnerable'],
-        default='No Vulnerable'
-    )
-    df_total['Vulnerabilidad'] = pd.Categorical(
-        df_total['Vulnerabilidad'],
-        categories=['No Vulnerable', 'Vulnerable No Pobre', 'Pobreza Alta'],
-        ordered=True
-    )
-    
-    # Rangos de estrés
-    df_total['Rango_Estres'] = np.select(
-        [df_total['score'] == 0, df_total['score'] == 1, df_total['score'] == 2,
-         df_total['score'] == 3, df_total['score'] >= 4],
-        ['Sin estrés financiero', 'Estrés bajo', 'Estrés moderado',
-         'Estrés alto', 'Estrés muy alto / crítico'],
-        default='Sin estrés financiero'
-    )
-    df_total['Rango_Estres'] = pd.Categorical(
-        df_total['Rango_Estres'],
-        categories=['Sin estrés financiero', 'Estrés bajo', 'Estrés moderado',
-                    'Estrés alto', 'Estrés muy alto / crítico'],
-        ordered=True
-    )
-    
-    # Problemas financieros
-    if 'p5_5' in df_total.columns:
-        df_total['Sin_Ahorro'] = (pd.to_numeric(df_total['p5_5'], errors='coerce') == 2).astype(int)
-    else:
-        df_total['Sin_Ahorro'] = np.nan
-        
-    if 'p8_2_4' in df_total.columns:
-        df_total['Incapacidad_Imprevistos'] = (pd.to_numeric(df_total['p8_2_4'], errors='coerce') == 1).astype(int)
-    else:
-        df_total['Incapacidad_Imprevistos'] = np.nan
-    
-    return df_total
+def cargar_datos():
+    df = pd.read_csv("datos_procesados.csv")
+    df['Genero'] = pd.Categorical(df['Genero'], categories=['Hombre', 'Mujer'])
+    df['Academia'] = pd.Categorical(df['Academia'], categories=['No Universitario', 'Universitario'])
+    df['Vulnerabilidad'] = pd.Categorical(df['Vulnerabilidad'], categories=['No Vulnerable', 'Vulnerable No Pobre', 'Pobreza Alta'], ordered=True)
+    df['Rango_Estres'] = pd.Categorical(df['Rango_Estres'], categories=['Sin estrés financiero', 'Estrés bajo', 'Estrés moderado', 'Estrés alto', 'Estrés muy alto / crítico'], ordered=True)
+    return df
 
-with st.spinner("⏳ Procesando datos de la ENSAFI 2023... Esto puede tomar unos minutos."):
-    df_total = procesar_datos()
+with st.spinner("⏳ Cargando datos..."):
+    df_total = cargar_datos()
 
 st.success(f"✅ Datos cargados: **{len(df_total):,}** registros.")
 
-# ------------------------------------------------------------------
-# TÍTULO
-# ------------------------------------------------------------------
 st.title("Efectos opuestos de la pobreza material y el género femenino")
 st.header("sobre el estrés financiero en universitarios mexicanos")
-st.markdown("""
-**Proyecto final — Fundamentos de Análisis de Datos**  
-Fuente: ENSAFI 2023 (INEGI / CONDUSEF) | Metodología: Boltvinik adaptado | Modelo: OLS + ANOVA
-""")
+st.markdown("**Proyecto final — Fundamentos de Análisis de Datos** | Fuente: ENSAFI 2023 | Metodología: Boltvinik adaptado | Modelo: OLS + ANOVA")
 
-# ------------------------------------------------------------------
-# TABLAS Y ANÁLISIS
-# ------------------------------------------------------------------
 # TABLA 1
 total_n = len(df_total)
 tabla1_rows = [{'Grupo': 'Total Encuestados', 'n': total_n, 'Porcentaje': 100.0}]
@@ -159,8 +61,7 @@ grupos_list.append(add_group(df_total[df_total['Vulnerabilidad'] == 'Pobreza Alt
 
 df_grupos = pd.concat(grupos_list, ignore_index=True)
 tabla2 = pd.crosstab(df_grupos['Grupo'], df_grupos['Rango_Estres'])
-orden = ['Total General', 'No Universitario', 'Universitario',
-         'Hombre', 'Mujer', 'No Vulnerable', 'Vulnerable No Pobre', 'Pobreza Alta']
+orden = ['Total General', 'No Universitario', 'Universitario', 'Hombre', 'Mujer', 'No Vulnerable', 'Vulnerable No Pobre', 'Pobreza Alta']
 tabla2 = tabla2.reindex([o for o in orden if o in tabla2.index])
 
 # TABLA 3: REGRESIÓN
@@ -271,9 +172,7 @@ if f_p is not None:
     tukey_p = pairwise_tukeyhsd(pob_df['score'], pob_df['grupo_tukey'])
     tukey_p_txt = str(tukey_p)
 
-# ------------------------------------------------------------------
-# INTERFAZ (PESTAÑAS)
-# ------------------------------------------------------------------
+# INTERFAZ
 tab_intro, tab_t1, tab_t2, tab_t3, tab_t4, tab_t5 = st.tabs([
     "📝 Introducción", "📊 Tabla 1", "📈 Tabla 2", "🎯 Tabla 3", "📉 Gráfico & Tabla 4", "🔍 Tabla 5"
 ])
@@ -284,10 +183,7 @@ with tab_intro:
     col1.metric("Total encuestados", f"{len(df_total):,}")
     col2.metric("Universitarios", f"{(df_total['Academia']=='Universitario').sum():,}")
     col3.metric("R² del modelo", f"{modelo.rsquared:.4f}")
-    st.markdown("""
-    Dashboard interactivo con los resultados del análisis de la ENSAFI 2023.
-    Metodología: clasificación material estricta (Boltvinik adaptado), regresión OLS y ANOVA.
-    """)
+    st.markdown("Dashboard interactivo con resultados de la ENSAFI 2023. Metodología: Boltvinik adaptado, regresión OLS y ANOVA.")
 
 with tab_t1:
     st.subheader("Tabla 1: Composición Sociodemográfica")
